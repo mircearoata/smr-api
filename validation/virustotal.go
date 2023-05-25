@@ -33,7 +33,6 @@ type AnalysisResults struct {
 }
 
 func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, error) {
-
 	errs, gctx := errgroup.WithContext(context.Background())
 	fileCount := len(files)
 
@@ -45,12 +44,10 @@ func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, er
 	}
 
 	if err := errs.Wait(); err == nil {
-		log.Info().Msgf("Successfully completed file scan.")
+		log.Info().Msgf("successfully completed file scan.")
 		return true, nil
-	} else {
-		log.Error().Msgf("Encountered Error: %v", err)
-		return false, err
 	}
+	return false, errors.Wrap(errs.Wait(), "failed to scan file")
 }
 
 func scanFile(ctx context.Context, file io.Reader, name string) error {
@@ -78,18 +75,18 @@ func scanFile(ctx context.Context, file io.Reader, name string) error {
 		}
 
 		if target.Attributes.Stats == nil {
-			log.Error().Msgf("No stats available. Failing file: %s", name)
-			return errors.Errorf("No stats available.")
+			log.Error().Msgf("no stats available. failing file: %s", name)
+			return errors.Errorf("no stats available")
 		}
 
 		if target.Attributes.Stats.Malicious == nil || target.Attributes.Stats.Suspicious == nil {
-			log.Error().Msgf("Unable to determine malicious or suspicious. File: %s", name)
-			return errors.Errorf("Unable to determine malicious or suspicious. ")
+			log.Error().Msgf("unable to determine malicious or suspicious File: %s", name)
+			return errors.Errorf("unable to determine malicious or suspicious")
 		}
 
 		if *target.Attributes.Stats.Malicious > 0 || *target.Attributes.Stats.Suspicious > 0 {
-			log.Error().Msgf("Suspicious or malicious file found: %s", name)
-			return errors.Errorf("Suspicious or malicious file found.")
+			log.Error().Msgf("suspicious or malicious file found: %s", name)
+			return errors.Errorf("suspicious or malicious file found")
 		}
 
 		break
