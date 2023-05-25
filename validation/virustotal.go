@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
+	"golang.org/x/sync/errgroup"
 )
 
 var client *vt.Client
@@ -32,45 +33,67 @@ type AnalysisResults struct {
 }
 
 func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, error) {
-	for i, file := range files {
-		scan, err := client.NewFileScanner().Scan(file, names[i], nil)
-		if err != nil {
-			return false, errors.Wrap(err, "failed to scan file")
-		}
 
-		analysisID := scan.ID()
+	errs, gctx := errgroup.WithContext(context.Background())
+	fileCount := len(files)
 
-		log.Info().Msgf("uploaded virus scan for file %s and analysis ID: %s", names[i], analysisID)
-
-		for {
-			time.Sleep(time.Second * 15)
-
-			var target AnalysisResults
-			_, err = client.GetData(vt.URL("analyses/%s", analysisID), &target)
-
-			if err != nil {
-				return false, errors.Wrap(err, "failed to get analysis results")
-			}
-
-			if target.Attributes.Status != "completed" {
-				continue
-			}
-
-			if target.Attributes.Stats == nil {
-				return false, nil
-			}
-
-			if target.Attributes.Stats.Malicious == nil || target.Attributes.Stats.Suspicious == nil {
-				return false, nil
-			}
-
-			if *target.Attributes.Stats.Malicious > 0 || *target.Attributes.Stats.Suspicious > 0 {
-				return false, nil
-			}
-
-			break
-		}
+	for i := 0; i < fileCount; i++ {
+		count := i
+		errs.Go(func() error {
+			return scanFile(gctx, files[count], names[count])
+		})
 	}
 
-	return true, nil
+	if err := errs.Wait(); err == nil {
+		log.Info().Msgf("Successfully completed file scan.")
+		return true, nil
+	} else {
+		log.Error().Msgf("Encountered Error: %v", err)
+		return false, err
+	}
+}
+
+func scanFile(ctx context.Context, file io.Reader, name string) error {
+	scan, err := client.NewFileScanner().Scan(file, name, nil)
+	if err != nil {
+		return errors.Wrap(err, "failed to scan file")
+	}
+
+	analysisID := scan.ID()
+
+	log.Info().Msgf("uploaded virus scan for file %s and analysis ID: %s", name, analysisID)
+
+	for {
+		time.Sleep(time.Second * 15)
+
+		var target AnalysisResults
+		_, err = client.GetData(vt.URL("analyses/%s", analysisID), &target)
+
+		if err != nil {
+			return errors.Wrap(err, "failed to get analysis results")
+		}
+
+		if target.Attributes.Status != "completed" {
+			continue
+		}
+
+		if target.Attributes.Stats == nil {
+			log.Error().Msgf("No stats available. Failing file: %s", name)
+			return errors.Errorf("No stats available.")
+		}
+
+		if target.Attributes.Stats.Malicious == nil || target.Attributes.Stats.Suspicious == nil {
+			log.Error().Msgf("Unable to determine malicious or suspicious. File: %s", name)
+			return errors.Errorf("Unable to determine malicious or suspicious. ")
+		}
+
+		if *target.Attributes.Stats.Malicious > 0 || *target.Attributes.Stats.Suspicious > 0 {
+			log.Error().Msgf("Suspicious or malicious file found: %s", name)
+			return errors.Errorf("Suspicious or malicious file found.")
+		}
+
+		break
+	}
+
+	return nil
 }
