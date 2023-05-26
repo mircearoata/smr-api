@@ -41,9 +41,9 @@ func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, er
 	for i := 0; i < fileCount; i++ {
 		count := i
 		errs.Go(func() error {
-			ok, err := scanFile(gctx, files[count], names[count])
-			if err != nil {
-				return errors.Wrap(err, "failed to scan file")
+			ok := scanFile(gctx, files[count], names[count])
+			if !ok {
+				return errors.Errorf("failed to scan file")
 			}
 			c <- ok
 			return nil
@@ -69,10 +69,10 @@ func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, er
 	return success, nil
 }
 
-func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
+func scanFile(ctx context.Context, file io.Reader, name string) bool {
 	scan, err := client.NewFileScanner().Scan(file, name, nil)
 	if err != nil {
-		return false, nil
+		return false
 	}
 
 	analysisID := scan.ID()
@@ -86,7 +86,7 @@ func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
 		_, err = client.GetData(vt.URL("analyses/%s", analysisID), &target)
 
 		if err != nil {
-			return false, nil
+			return false
 		}
 
 		if target.Attributes.Status != "completed" {
@@ -95,21 +95,21 @@ func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
 
 		if target.Attributes.Stats == nil {
 			log.Error().Msgf("no stats available. failing file: %s", name)
-			return false, nil
+			return false
 		}
 
 		if target.Attributes.Stats.Malicious == nil || target.Attributes.Stats.Suspicious == nil {
 			log.Error().Msgf("unable to determine malicious or suspicious File: %s", name)
-			return false, nil
+			return false
 		}
 
 		if *target.Attributes.Stats.Malicious > 0 || *target.Attributes.Stats.Suspicious > 0 {
 			log.Error().Msgf("suspicious or malicious file found: %s", name)
-			return false, nil
+			return false
 		}
 
 		break
 	}
 
-	return true, nil
+	return true
 }
