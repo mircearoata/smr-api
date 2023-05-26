@@ -72,7 +72,7 @@ func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, er
 func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
 	scan, err := client.NewFileScanner().Scan(file, name, nil)
 	if err != nil {
-		return false, errors.Wrap(err, "failed to scan file")
+		return false, nil
 	}
 
 	analysisID := scan.ID()
@@ -86,7 +86,7 @@ func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
 		_, err = client.GetData(vt.URL("analyses/%s", analysisID), &target)
 
 		if err != nil {
-			return false, errors.Wrap(err, "failed to get analysis results")
+			return false, nil
 		}
 
 		if target.Attributes.Status != "completed" {
@@ -95,17 +95,17 @@ func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
 
 		if target.Attributes.Stats == nil {
 			log.Error().Msgf("no stats available. failing file: %s", name)
-			return false, errors.Wrap(err, "no stats available")
+			return false, nil
 		}
 
 		if target.Attributes.Stats.Malicious == nil || target.Attributes.Stats.Suspicious == nil {
 			log.Error().Msgf("unable to determine malicious or suspicious File: %s", name)
-			return false, errors.Wrap(err, "unable to determine malicious or suspicious")
+			return false, nil
 		}
 
 		if *target.Attributes.Stats.Malicious > 0 || *target.Attributes.Stats.Suspicious > 0 {
 			log.Error().Msgf("suspicious or malicious file found: %s", name)
-			return false, errors.Wrap(err, "suspicious or malicious file found")
+			return false, nil
 		}
 
 		break
