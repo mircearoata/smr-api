@@ -36,24 +36,43 @@ func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, er
 	errs, gctx := errgroup.WithContext(context.Background())
 	fileCount := len(files)
 
+	c := make(chan bool)
+
 	for i := 0; i < fileCount; i++ {
 		count := i
 		errs.Go(func() error {
-			return scanFile(gctx, files[count], names[count])
+			ok, err := scanFile(gctx, files[count], names[count])
+			if err != nil {
+				return errors.Wrap(err, "failed to scan file")
+			}
+			c <- ok
+			return nil
 		})
 	}
+	go func() {
+		_ = errs.Wait()
+		close(c)
+	}()
 
-	if err := errs.Wait(); err == nil {
-		log.Info().Msgf("successfully completed file scan.")
-		return true, nil
+	success := true
+	for res := range c {
+		if !res {
+			success = false
+			break
+		}
 	}
-	return false, errors.Wrap(errs.Wait(), "failed to scan file")
+
+	if err := errs.Wait(); err != nil {
+		return false, errors.Wrap(errs.Wait(), "failed to scan file")
+	}
+
+	return success, nil
 }
 
-func scanFile(ctx context.Context, file io.Reader, name string) error {
+func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
 	scan, err := client.NewFileScanner().Scan(file, name, nil)
 	if err != nil {
-		return errors.Wrap(err, "failed to scan file")
+		return false, errors.Wrap(err, "failed to scan file")
 	}
 
 	analysisID := scan.ID()
@@ -67,7 +86,7 @@ func scanFile(ctx context.Context, file io.Reader, name string) error {
 		_, err = client.GetData(vt.URL("analyses/%s", analysisID), &target)
 
 		if err != nil {
-			return errors.Wrap(err, "failed to get analysis results")
+			return false, errors.Wrap(err, "failed to get analysis results")
 		}
 
 		if target.Attributes.Status != "completed" {
@@ -76,21 +95,21 @@ func scanFile(ctx context.Context, file io.Reader, name string) error {
 
 		if target.Attributes.Stats == nil {
 			log.Error().Msgf("no stats available. failing file: %s", name)
-			return errors.Errorf("no stats available")
+			return false, errors.Wrap(err, "no stats available")
 		}
 
 		if target.Attributes.Stats.Malicious == nil || target.Attributes.Stats.Suspicious == nil {
 			log.Error().Msgf("unable to determine malicious or suspicious File: %s", name)
-			return errors.Errorf("unable to determine malicious or suspicious")
+			return false, errors.Wrap(err, "unable to determine malicious or suspicious")
 		}
 
 		if *target.Attributes.Stats.Malicious > 0 || *target.Attributes.Stats.Suspicious > 0 {
 			log.Error().Msgf("suspicious or malicious file found: %s", name)
-			return errors.Errorf("suspicious or malicious file found")
+			return false, errors.Wrap(err, "suspicious or malicious file found")
 		}
 
 		break
 	}
 
-	return nil
+	return true, nil
 }
