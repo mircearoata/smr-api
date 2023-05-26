@@ -72,7 +72,7 @@ func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, er
 func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
 	scan, err := client.NewFileScanner().Scan(file, name, nil)
 	if err != nil {
-		return false, nil
+		return false, errors.Wrap(err, "failed to scan file")
 	}
 
 	analysisID := scan.ID()
@@ -86,7 +86,7 @@ func scanFile(ctx context.Context, file io.Reader, name string) (bool, error) {
 		_, err = client.GetData(vt.URL("analyses/%s", analysisID), &target)
 
 		if err != nil {
-			return false, nil
+			return false, errors.Wrap(err, "failed to get analysis results")
 		}
 
 		if target.Attributes.Status != "completed" {
