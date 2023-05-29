@@ -63,7 +63,7 @@ func ScanFiles(ctx context.Context, files []io.Reader, names []string) (bool, er
 	}
 
 	if err := errs.Wait(); err != nil {
-		return false, errors.Wrap(errs.Wait(), "failed to scan file")
+		return false, errors.Wrap(err, "failed to scan file")
 	}
 
 	return success, nil
